@@ -1,0 +1,2 @@
+# Burial-protects-cactus-seeds-from-fire-but-seedling-emergence-depends-on-seed-size.
+Fire affects seed recruitment, but its effects on cacti remain poorly understood. Burial may protect seeds from heat while limiting seedling emergence, depending on seed size and seedling traits. We studied three cactus species with contrasting characteristics under different fuel loads and burial depths to investigate this trade-off.
