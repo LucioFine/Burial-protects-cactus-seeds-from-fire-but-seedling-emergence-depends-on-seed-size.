@@ -1,0 +1,714 @@
+#==================================================================================
+#Analisis de los efectos del fuego y la profundidad de enterramiento de las semillas 
+#durante la quema sobre el percentaje de germinación y emergencia
+#
+
+
+
+
+##################
+# Cargar paquetes#
+##################
+
+packages.needed <- c(
+  "ggplot2",
+  "dplyr",
+  "tidyverse",
+  "lme4",
+  "emmeans",
+  "multcomp",
+  "multcompView",
+  "DHARMa",
+  "broom.mixed",
+  "ggeffects",
+  "lmerTest",
+  "car",
+  "brglm2"
+)
+
+to_install <- packages.needed[
+  !(packages.needed %in% installed.packages()[, "Package"])
+]
+
+if(length(to_install) > 0){
+  install.packages(to_install)
+}
+
+lapply(packages.needed, require, character.only = TRUE)
+
+###############
+# cargar datos#
+###############
+
+library(readxl)
+
+df <- read_excel("D:/Usuario/Usuario/Desktop/UNC/tesina/cacti/datos/gye.xlsx")
+
+df$especie <- factor(df$especie)
+df$carga <- factor(df$carga)
+df$profundidad <- factor(df$profundidad)
+
+
+
+
+
+
+#============================================================
+# analisis de Germinación
+#============================================================
+
+#Objetivo: evaluar el efecto del fuego sobre el porcentaje de germinación en 
+#semillas enterradas y no enterradas
+
+
+
+
+#________________
+#modelo global
+#________________
+
+# mod_germ <- glm(
+#  cbind(exito, fracaso) ~ especie * carga * profundidad, family = binomial,
+#  data = subset(df, tipo == "germinacion"))
+
+# Este modelo no se puede usar para analizar la germinación porque control y
+# carga no son equivalentes (hay un solo control, a 0mm) entonces genera celdas vacías.
+# Para emergencia si se podría, entonces debería usar un modelo diferente para ambas variables
+
+mod_germ<- glm(cbind(exito, fracaso) ~ tratamiento * especie, data = subset(df, tipo == "germinacion"),family = binomial)
+
+#ANOVA
+
+anova(mod_germ)
+
+
+#diagnóstico
+
+sim <- simulateResiduals(mod_germ)
+
+plot(sim)
+testDispersion(sim)
+
+
+#Comparaciones post hoc
+
+emm_germ <- emmeans(mod_germ, ~ tratamiento | especie, type = "response")
+
+pairs(emm_germ)
+
+#letras
+
+cld_germ <- cld(
+  emm_germ,
+  Letters = letters,
+  adjust = "tukey")
+
+cld_germ
+
+
+
+# acá junto los tratamientos de carga y profundidad
+#mod <- glm(
+#  cbind(exito, fracaso) ~ tratamiento * especie,
+#  family = binomial,
+#  data = df
+#)
+
+#summary(mod)
+
+#drop1(mod_fuego, test = "Chisq")
+
+
+
+
+
+
+
+
+
+
+
+#==========================================
+#1. Efecto del fuego en superficie (0 mm)
+#==========================================
+
+
+#¿La intensidad del fuego afecta la germinación de semillas expuestas?
+#control 0mm
+#C25 0mm
+#C100 0mm
+
+germ0 <- subset(df, tipo == "germinacion" & profundidad == "0mm")
+
+
+# # Diagnóstico de separación completa
+# 
+# install.packages("detectseparation")
+# library(detectseparation)
+# 
+# mod_sep <- glm(cbind(exito, fracaso) ~ carga * especie,
+#   family = binomial, data = germ0, method = detect_separation)
+# 
+# mod_sep
+# 
+
+
+
+
+
+
+
+##########################
+# Modelo binomial clásico#
+##########################
+
+#  Se detectó separación completa en el GLM binomial debido a la ausencia total de 
+# germinación en el tratamiento C100 0 mm.
+#  Ese resultado se interpreta como un efecto biológico real del tratamiento.
+#  Para evaluar los supuestos y realizar las comparaciones entre los tratamientos 
+# con variación en la respuesta, se ajustó un GLM binomial excluyendo dicho tratamiento
+
+# germ0_diag <- germ0 %>% filter(carga != "C100")
+# 
+# 
+# mod_fuego <- glm(cbind(exito, fracaso) ~ carga * especie, family = binomial,
+#   data = germ0_diag)
+# 
+# 
+
+#El modelo aditivo es importante porque responde a la hipotesis 2 del plan
+
+
+
+
+
+# summary(mod_fuego)
+# 
+# anova(mod_fuego, test = "Chisq")
+# 
+# plot(mod_fuego)
+# 
+# 
+# 
+# 
+# 
+# emm_fuego <- emmeans(mod_fuego, ~ profundidad | especie * carga,type = "response")
+# 
+# cld_prof <- cld(emm_prof, Letters = letters,adjust = "tukey")
+# 
+# cld_prof
+
+
+
+
+
+
+
+
+
+
+
+
+# #Prueba	          Resultado	     Interpretación
+# #Uniformidad (KS)	p = 0.5230	    No hay evidencia de desviación de la distribución esperada de los residuos.
+# #Dispersión	      p = 0.53	      No hay sobre- ni subdispersión.
+# #Outliers	        p = 1.00	      No se detectan observaciones atípicas.
+# #Residuos vs. predichos	"No significant problems detected"	No se observan patrones sistemáticos en los residuos.
+
+
+
+
+
+
+
+
+
+#________________________________________________________________
+
+
+#Regresión logistica penalizada de Firth
+
+#el glm falla pq usa una regresion logist clásica, tiene problemas con la separación total
+#cuanso en un caso hay 0% (como ahora) o 100% de germinación. Cambia el método de 
+#estimación. En lugar de maximizar unicamente la verosimilitud, maximiza una verosimilitud penalizada
+
+
+# library(dplyr)
+# library(tidyr)
+# library(purrr)
+# 
+# germ0_ind <- germ0 %>%
+#   mutate(
+#     germino = map2(exito, fracaso,
+#                    ~ c(rep(1, .x), rep(0, .y)))
+#   ) %>%
+#   unnest(germino)
+# 
+# nrow(germ0_ind)
+# 
+# 
+# 
+# 
+# 
+# install.packages("logistf")
+# library(logistf)
+# 
+# mod_firth <- logistf( cbind(exito, fracaso) ~ carga + especie, data = germ0_ind)
+# 
+# 
+# 
+# str(germ0)
+# head(germ0)
+# table(germ0$carga)
+# table(germ0$especie)
+
+
+
+#este metodo arroja una singularidad, probablemente debido a que un nivel de factor 
+# entero da cero. Con esta estructura de datos no logra resolver el problema numéricamente. 
+
+
+
+
+# #___________________
+# #método alternativo
+# #___________________
+# 
+# # brglm2 utiliza estimación con reducción de sesgo (adjusted score equations). 
+# #En lugar de dejar que los coeficientes vayan a ±∞, los penaliza(¿?) y obtiene estimaciones finitas.
+# 
+library(brglm2)
+library(emmeans)
+library(multcomp)
+library(multcompView)
+
+mod_fuego <- glm(cbind(exito, fracaso) ~ carga * especie, family = binomial,
+                 data = germ0, method = brglmFit,
+                 type = "AS_mean")
+plot(mod_fuego)
+
+
+
+
+
+summary(mod_fuego)
+
+anova(mod_fuego, test = "Chisq")
+
+
+
+
+emm_fuego <- emmeans(mod_fuego, ~ carga | especie, type = "response")
+
+cld_fuego <- cld(emm_fuego,Letters = letters, adjust = "tukey")
+
+cld_fuego
+
+pairs(emm_fuego, adjust = "tukey")
+
+
+ 
+# #La exposición superficial al fuego reduce fuertemente la germinación.
+# #Este efecto aumenta con la carga de combustible.
+# 
+# #Las tres especies difieren en su capacidad germinativa.
+# #No hay evidencia de que las especies respondan diferencialmente a las cargas del fuego.
+# 
+# #Interpretar:
+#   
+# #  carga significativa
+# # especie significativa
+# # interacción no significativa
+# # usar las proporciones observadas para describir el patrón.
+
+
+
+
+# #Supuestos del modelo
+# ======================
+
+library(DHARMa)
+
+sim_fuego <- simulateResiduals(  fittedModel = mod_fuego,
+                                 n = 1000) # aumento el n para que haga más simulaciones
+
+plot(sim_fuego)
+
+testUniformity(sim_fuego)
+
+testDispersion(sim_fuego)
+
+testOutliers(sim_fuego)
+
+
+
+
+
+
+
+
+
+
+# library(emmeans)
+# 
+# 
+# install.packages("cld")
+# 
+# library(cld)
+
+
+
+#==========================================================
+#2. Efecto protector del enterramiento 
+#==========================================================
+
+#¿La profundidad reduce los efectos negativos del fuego?
+
+germ_fuego <- subset(df,tipo == "germinacion")
+
+mod_prof <- glm(cbind(exito, fracaso) ~ especie * carga * profundidad,
+  family = binomial,data = germ_fuego, method = brglmFit,
+  type = "AS_mean")
+
+anova(mod_prof, test = "Chisq")
+
+emm_prof <- emmeans(mod_prof, ~ profundidad | especie * carga,type = "response")
+
+cld_prof <- cld(emm_prof, Letters = letters,adjust = "tukey")
+
+cld_prof
+
+
+
+#No debería interpretar los efectos principales (especie, carga, profundidad) de manera aislada.
+#Porque una interacción triple significativa significa que:
+#El efecto de la profundidad depende de la carga de combustible y esa dependencia cambia entre especies.
+
+# La germinación aumenta progresivamente con la profundidad.El enterramiento mejora fuertemente la germinación.
+# Parece necesitar mayor enterramiento para obtener protección.
+# El beneficio aparece ya a 2 mm
+# 
+
+
+###################################
+#Suepuestos del modelo
+###################################
+
+library(DHARMa)
+
+sim_prof <- simulateResiduals(  fittedModel = mod_prof,
+                                 n = 1000) # aumento el n para que haga más simulaciones
+plot(sim_prof)
+
+testUniformity(sim_prof)
+
+testDispersion(sim_prof)
+
+testOutliers(sim_prof)
+
+
+#Prueba	          Resultado	     Interpretación
+#Uniformidad (KS)	p = 0.5230	    No hay evidencia de desviación de la distribución esperada de los residuos.
+#Dispersión	      p = 0.53	      No hay sobre- ni subdispersión.
+#Outliers	        p = 1.00	      No se detectan observaciones atípicas.
+#Residuos vs. predichos	"No significant problems detected"	No se observan patrones sistemáticos en los residuos.
+
+# # Diagnóstico de separación completa
+# 
+# install.packages("detectseparation")
+# library(detectseparation)
+# 
+# mod_prof <- glm(cbind(exito, fracaso) ~ carga * especie,
+#   family = binomial, data = germ_fuego, method = detect_separation)
+# 
+# mod_prof
+# 
+#No hay separación
+
+
+#===================================================
+# 3. Comparar cargas dentro de cada profundidad
+#===================================================
+
+# A una misma profundidad ¿C100 produce más mortalidad que C25?
+
+emm_carga <- emmeans(mod_prof,~ carga | especie * profundidad,type = "response", )
+
+
+cld_carga <- cld(emm_carga,Letters = letters,adjust = "tukey")
+
+cld_carga
+
+#=========================================================================
+#4. saber si el efecto de profundidad depende de la intensidad del fuego.
+#=========================================================================
+emm_int <- emmeans(
+  mod_prof,
+  ~ carga * profundidad | especie,
+  type = "response"
+)
+
+pairs(emm_int)
+
+
+
+
+
+
+#especie × carga × profundidad
+#p = 0.0029
+#
+#es significativa. Eso significa que no existe una única respuesta al enterramiento; 
+#cada especie responde de manera diferente según la intensidad del fuego.
+#
+#En Echinopsis, el efecto de aumentar la carga de combustible sólo aparece claramente a 5 mm. 
+#A 0 y 2 mm ambas cargas producen respuestas similares, aunque se observa una 
+# tendencia a una disminución .
+
+# En gymno es interesante porque el efecto de la carga aparece a 2 mm pero desaparece a 5 mm. 
+#Eso sugiere que 5 mm de enterramiento son suficientes para amortiguar el aumento de intensidad del fuego.
+
+
+# En Harrisia el efecto de la carga es más persistente. Incluso a 5 mm, 
+#C100 sigue reduciendo fuertemente la germinación respecto de C25.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+####REVISION DE SOBRE-DISPERSION########
+
+# PARA CADA MODELO 
+library(DHARMa)
+
+sim_fuego <- simulateResiduals(mod_fuego)
+plot(sim_fuego)
+
+testDispersion(sim_fuego)
+testUniformity(sim_fuego)
+testOutliers(sim_fuego)
+
+
+sim_prof <- simulateResiduals(mod_prof)
+plot(sim_prof)
+
+testDispersion(sim_prof)
+testUniformity(sim_prof)
+testOutliers(sim_prof)
+
+
+# REVISAR SEPARACIÓN COMPLETA
+
+summary(mod_fuego)
+summary(mod_prof)
+
+#Buscá señales como: fitted probabilities numerically 0 or 1 occurred
+
+
+
+
+
+
+
+
+
+
+
+
+#=================================
+# ANALISIS DE EMERGENCIA#
+#=================================
+
+###############################################################
+# 2. Preparar datos
+###############################################################
+library(dplyr)
+library(tidyverse)
+
+df <- df %>% mutate(especie = factor(especie),carga = factor(carga,levels = c("control", "C25", "C100")),
+    profundidad = factor(profundidad, levels = c("2mm", "5mm")))
+
+
+###############################################################
+# 3. Seleccionar únicamente emergencia
+###############################################################
+
+
+emerg <- subset(df,tipo == "emergencia")
+
+
+###############################################################
+# 4. Resumen descriptivo
+###############################################################
+
+
+resumen_emerg <- emerg %>%group_by(especie, carga, profundidad) %>%
+  summarise(emergidas = sum(exito),total = sum(exito + fracaso),
+    proporcion = emergidas/total,.groups = "drop")
+
+resumen_emerg
+
+
+###############################################################
+# 5. Modelo binomial
+###############################################################
+
+
+mod_emerg <- glm(cbind(exito, fracaso) ~ especie * carga * profundidad,
+  family = binomial,data = emerg, method = brglmFit,
+  type = "AS_mean")
+
+plot(mod_emerg)
+
+###############################################################
+# 6. Tabla ANOVA
+###############################################################
+
+anova(mod_emerg, test = "Chisq")
+
+
+
+
+
+
+
+
+
+
+#la interacción triple no es significativa. 
+#Eso sugiere que el patrón general de respuesta a profundidad y carga es 
+#relativamente consistente entre especies.
+
+#especie × profundidad  p < 0.0001
+#las especies responde de forma diferente a la profundidad
+
+#carga × profundidad p = 0.0008
+#Esto indica que el efecto de la carga de combustible depende de la profundidad
+
+#summary(cld_prof)
+
+
+
+
+# Diagnóstico de separación completa
+# 
+# install.packages("detectseparation")
+# library(detectseparation)
+# 
+# mod_sep <- glm(cbind(exito, fracaso) ~ carga * especie * profundidad,
+#                family = binomial, data = emerg, method = detect_separation)
+# 
+# mod_sep
+# 
+# Hay separación de datos
+
+
+
+
+
+
+###############################################################
+# 7. Comparar profundidades dentro de cada carga
+###############################################################
+
+emm_prof <- emmeans(mod_emerg,~ profundidad | especie * carga,type = "response")
+
+cld_prof <- cld(emm_prof,Letters = letters,adjust = "tukey")
+
+cld_prof
+
+
+
+
+
+#En las tres especies, cuando aparece una diferencia significativa 
+#entre profundidades, la dirección es: 2 mm > 5 mm
+
+#Aunque el enterramiento favoreció la germinación bajo condiciones de fuego, 
+#mayores profundidades redujeron la probabilidad de emergencia de las plántulas
+#en varias combinaciones de tratamientos.
+
+
+
+###########################
+#Suepuestos del modelo
+###########################
+
+set.seed(123)
+
+sim_emerg <- simulateResiduals(  fittedModel = mod_emerg,
+  n = 1000) # aumento el n para que haga más simulaciones
+plot(sim_emerg)
+
+testUniformity(sim_emerg)
+
+testDispersion(sim_emerg)
+
+testOutliers(sim_emerg)
+
+
+
+#Prueba	          Resultado	     Interpretación
+#Uniformidad (KS)	p = 0.5230	    No hay evidencia de desviación de la distribución esperada de los residuos.
+#Dispersión	      p = 0.53	      No hay sobre- ni subdispersión.
+#Outliers	        p = 1.00	      No se detectan observaciones atípicas.
+#Residuos vs. predichos	"No significant problems detected"	No se observan patrones sistemáticos en los residuos.
+
+
+
+
+
+
+###############################################################
+# 8. Comparar cargas dentro de cada profundidad
+###############################################################
+
+
+emm_carga <- emmeans(mod_emerg,~ carga | especie * profundidad,type = "response")
+
+cld_carga <- cld(emm_carga,Letters = letters,adjust = "tukey")
+
+cld_carga
+
+
+###############################################################
+# 9. Contrastes específicos (p-valores exactos)
+###############################################################
+
+
+pairs(emm_prof,adjust = "tukey")
+
+pairs(emm_carga,adjust = "tukey")
+
+###############################################################
+# 10. Diagnóstico del modelo
+###############################################################
+
+library(DHARMa)
+
+set.seed(123)
+
+sim_emerg <- simulateResiduals(  fittedModel = mod_emerg,
+                                 n = 1000) # aumento el n para que haga más simulaciones
+plot(sim_emerg)
+
+plot(sim_emerg)
+
+testDispersion(sim_emerg)
+
+testZeroInflation(sim_emerg)
+
+testUniformity(sim_emerg)
+
+
+
+#lo mismo que el diagnóstico anterior
