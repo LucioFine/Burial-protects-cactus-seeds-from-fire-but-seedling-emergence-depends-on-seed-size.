@@ -1,0 +1,1014 @@
+# =========================================================
+# ANÁLISIS DE LOS TIEMPOS MEDIOS DE GERMINACIÓN (TMG)
+# Y EMERGENCIA (TME)
+#
+# Objetivo:
+# Evaluar el efecto de la carga de combustible,
+# la profundidad de enterramiento y la especie
+# sobre el tiempo medio de germinación y emergencia.
+#
+# =========================================================
+
+# =========================================================
+# PAQUETES
+# =========================================================
+
+packages.needed <- c(
+  "readxl",
+  "dplyr",
+  "emmeans",
+  "multcomp",
+  "multcompView",
+  "ggplot2"
+)
+
+# Instalar únicamente los paquetes que no estén disponibles
+to_install <- packages.needed[
+  !(packages.needed %in% installed.packages()[, "Package"])
+]
+
+if(length(to_install) > 0){
+  install.packages(to_install)
+}
+
+# Cargar todos los paquetes necesarios
+invisible(
+  lapply( packages.needed, library, character.only = TRUE))
+
+
+# =========================================================
+# IMPORTACIÓN Y PREPARACIÓN DE LOS DATOS
+# =========================================================
+
+# Importar la base de datos con los tiempos medios de
+# germinación (TMG) y emergencia (TME).
+
+datos_TM <- read_excel(
+  "D:/Usuario/Usuario/Desktop/UNC/tesina/cacti/datos/TM_GyE.xlsx"
+)
+
+# Asegurar que la variable respuesta sea numérica.
+
+datos_TM$TM <- as.numeric(datos_TM$TM)
+
+# Preparar la base de datos para el análisis:
+# - eliminar registros sin tiempo medio;
+# - definir las variables categóricas como factores;
+# - establecer el orden de los niveles de carga y profundidad.
+
+datos_TM <- datos_TM %>%  filter(!is.na(TM)) %>% mutate( especie = factor(especie),
+    tipo = factor(tipo),  carga = factor( carga,
+      levels = c("control", "C25", "C100") ),
+    profundidad = factor( profundidad,
+      levels = c("0mm", "2mm", "5mm") ) )
+
+
+
+
+# =========================================================
+# TIEMPO MEDIO DE GERMINACIÓN (TMG)
+# =========================================================
+#
+# Objetivo:
+# Evaluar si la carga de combustible, la profundidad de
+# enterramiento y la especie afectan el tiempo medio de
+# germinación de las semillas.
+
+
+
+# Seleccionar únicamente los registros correspondientes
+# al tiempo medio de germinación.
+# se dejan de lado los datos con menos de 20% de germinación
+
+datos_TMG <- datos_TM %>%
+  filter(tipo == "Germinación",
+         porcentaje >= 20)
+
+
+# ---------------------------------------------------------
+# EFECTO DEL FUEGO
+# ---------------------------------------------------------
+#
+# Se analizan únicamente los tratamientos ubicados en la
+# superficie del suelo (0 mm), donde la única variable
+# experimental es la carga de combustible.
+
+
+#datos_TMG_fuego <- datos_TMG %>%  filter(profundidad == "0mm")
+datos_TMG_fuego <- datos_TMG 
+
+# Ajustar dos modelos lineales generalizados con diferentes
+# distribuciones (Normal y Gamma) para determinar cuál
+# representa mejor la distribución de los tiempos medios.
+
+
+#mod_norm_TMG_fuego <- glm(  TM ~ especie * carga, family = gaussian(),
+#  data = datos_TMG_fuego)
+
+mod_gamma_TMG_fuego <- glm( TM ~ especie * carga, family = Gamma (link = "log"),
+  data = datos_TMG_fuego)
+
+
+
+# Comparar ambos modelos mediante el criterio de información
+# de Akaike (AIC). El modelo con menor AIC se utiliza para
+# el resto del análisis.
+
+#AIC(mod_norm_TMG_fuego, mod_gamma_TMG_fuego)
+
+#anova(mod_norm_TMG_fuego, mod_gamma_TMG_fuego)
+
+
+
+# Resumen del modelo seleccionado.
+
+summary(mod_gamma_TMG_fuego)
+
+# Evaluar los efectos de la especie, la carga de combustible
+# y su interacción sobre el tiempo medio de germinación.
+
+anova(mod_gamma_TMG_fuego)
+
+
+# Estimar las medias marginales ajustadas para cada nivel
+# de carga dentro de cada especie.
+
+emm_TMG_fuego_carga <- emmeans( mod_gamma_TMG_fuego,
+  ~ carga | especie,  type = "response")
+
+# Comparaciones múltiples entre cargas.
+
+pairs(emm_TMG_fuego_carga)
+
+# Asignación de letras para representar grupos
+# estadísticamente diferentes.
+
+cld(emm_TMG_fuego_carga,  Letters = letters)
+
+
+#=========================================
+# Diagnóstico del modelo Gamma (DHARMa)
+#=========================================
+
+library(DHARMa)
+
+res_TMG_fuego <- simulateResiduals(
+  fittedModel = mod_gamma_TMG_fuego,
+  n = 1000
+)
+
+plot(res_TMG_fuego)
+#QQ-plot de los residuos simulados
+#Compara contra una distribución uniforme, que es la esperada si el modelo ajusta correctamente.
+#Si los puntos siguen la línea, el ajuste es adecuado.
+#Si aparecen desviaciones importantes, el modelo podría estar mal especificado.
+
+#Residuos vs. valores predichos
+#Es similar al gráfico clásico.
+#Lo que buscás es que los puntos estén distribuidos al azar.
+
+
+testUniformity(res_TMG_fuego) #los residuos siguen una distribución uniforme.
+testDispersion(res_TMG_fuego) #Evalúa si la variabilidad observada coincide con la esperada.
+testOutliers(res_TMG_fuego) #Busca más valores extremos de los esperados bajo el modelo.
+
+
+
+# ---------------------------------------------------------
+#EFECTO DEL ENTERRAMIENTO
+# ---------------------------------------------------------
+#
+# Se analizan únicamente los tratamientos con aplicación
+# de combustible y semillas enterradas, con el objetivo
+# de evaluar el efecto de la carga de combustible, la
+# profundidad de enterramiento y su interacción sobre el
+# tiempo medio de germinación.
+
+
+# Seleccionar únicamente tratamientos con aplicación de
+# combustible y semillas enterradas.
+
+datos_TMG_enterramiento <- datos_TMG %>%
+  filter(carga != "control",  profundidad != "0mm")
+
+
+
+# Ajustar modelos con distribución Normal y Gamma para
+# determinar cuál representa mejor la distribución de los
+# tiempos medios de germinación.
+
+#mod_norm_TMG_enterramiento <- glm(  TM ~ especie * carga * profundidad,
+#  family = gaussian(),  data = datos_TMG_enterramiento)
+
+mod_gamma_TMG_enterramiento <- glm(  TM ~ especie * carga * profundidad,
+  family = Gamma(link = "log"),  data = datos_TMG_enterramiento)
+
+
+
+# Comparar ambos modelos mediante AIC.
+# El modelo con menor AIC será utilizado para el resto
+# del análisis.
+
+#AIC( mod_norm_TMG_enterramiento, mod_gamma_TMG_enterramiento)
+
+#anova(mod_norm_TMG_enterramiento, mod_gamma_TMG_enterramiento)
+
+
+
+# Resumen del modelo seleccionado.
+
+summary(mod_gamma_TMG_enterramiento)
+
+# Evaluar los efectos principales y las interacciones
+# entre especie, carga y profundidad.
+
+anova(mod_gamma_TMG_enterramiento)
+
+
+# Debido a la interacción especie × profundidad observada
+# en el modelo, se comparan las profundidades dentro de
+# cada especie mediante medias marginales estimadas.
+
+emm_TMG_ent_profundidad <- emmeans( mod_gamma_TMG_enterramiento,
+  ~ profundidad | especie,  type = "response")
+
+pairs(emm_TMG_ent_profundidad)
+
+cld( emm_TMG_ent_profundidad,  Letters = letters)
+
+
+# Comparar las cargas de combustible dentro de cada
+# combinación de especie y profundidad.
+
+emm_TMG_ent_carga <- emmeans( mod_gamma_TMG_enterramiento,~ carga | especie * profundidad,
+  type = "response")
+
+pairs(emm_TMG_ent_carga)
+
+cld(emm_TMG_ent_carga,Letters = letters)
+
+
+#=========================================
+# Diagnóstico del modelo Gamma (DHARMa)
+#=========================================
+
+res_TMG_ent <- simulateResiduals(
+  fittedModel = mod_gamma_TMG_enterramiento,
+  n = 1000
+)
+
+plot(res_TMG_ent)
+testUniformity(res_TMG_fuego) #los residuos siguen una distribución uniforme.
+testDispersion(res_TMG_fuego) #Evalúa si la variabilidad observada coincide con la esperada.
+testOutliers(res_TMG_fuego) #Busca más valores extremos de los esperados bajo el modelo.
+
+#corregir nombre
+
+
+
+
+# =========================================================
+# TIEMPO MEDIO DE EMERGENCIA (TME)
+# =========================================================
+#
+# Objetivo:
+# Evaluar si la carga de combustible, la profundidad de
+# enterramiento y la especie afectan el tiempo medio de
+# emergencia de las plántulas.
+#
+# A diferencia del análisis del TMG, no es posible evaluar
+# el efecto del fuego de manera independiente debido a la
+# ausencia de emergencias en los tratamientos superficiales.
+# Por lo tanto, el análisis se realiza utilizando todos los
+# tratamientos en los que ocurrió emergencia.
+
+
+
+# Seleccionar únicamente los registros correspondientes
+# al tiempo medio de emergencia.
+
+datos_TME <- datos_TM %>% filter(tipo == "Emergencia", porcentaje > 20)
+
+
+# Ajustar modelos con distribución Normal y Gamma para
+# identificar cuál describe mejor la distribución de los
+# tiempos medios de emergencia.
+
+#mod_norm_TME <- glm(TM ~ especie * carga * profundidad, family = gaussian(),  
+#  data = datos_TME)
+
+mod_gamma_TME <- glm( TM ~ especie * carga * profundidad, family = Gamma(link = "log"),
+  data = datos_TME)
+
+
+
+# Comparar ambos modelos mediante el criterio de
+# información de Akaike (AIC). El modelo con menor AIC
+# se utiliza para el resto del análisis.
+
+#AIC(mod_norm_TME, mod_gamma_TME)
+
+
+# Resumen del modelo seleccionado.
+
+summary(mod_gamma_TME)
+
+
+# Evaluar los efectos principales y las interacciones
+# entre especie, carga de combustible y profundidad.
+
+anova(mod_gamma_TME)
+
+
+# Comparar las combinaciones de carga de combustible y
+# profundidad dentro de cada especie mediante medias
+# marginales estimadas.
+
+emm_TME_tratamientos <- emmeans(  mod_gamma_TME,
+  ~ carga * profundidad | especie,  type = "response")
+
+pairs(emm_TME_tratamientos)
+
+cld(  emm_TME_tratamientos, Letters = letters)
+
+
+
+# Comparar las especies dentro de cada profundidad de
+# enterramiento.
+
+emm_TME_especies <- emmeans(mod_gamma_TME,  ~ especie | profundidad,type = "response")
+
+pairs(emm_TME_especies)
+
+cld(emm_TME_especies, Letters = letters, adjust = "tukey")
+
+
+
+#=========================================
+# Diagnóstico del modelo Gamma (DHARMa)
+#=========================================
+
+res_TME <- simulateResiduals(
+  fittedModel = mod_gamma_TME,
+  n = 1000
+)
+
+plot(res_TME)
+
+testUniformity(res_TME)
+testDispersion(res_TME)
+testOutliers(res_TME)
+
+
+
+#Prueba	          Resultado	     Interpretación
+#Uniformidad (KS)	p = 0.5230	    No hay evidencia de desviación de la distribución esperada de los residuos.
+#Dispersión	      p = 0.53	      No hay sobre- ni subdispersión.
+#Outliers	        p = 1.00	      No se detectan observaciones atípicas.
+#Residuos vs. predichos	"No significant problems detected"	No se observan patrones sistemáticos en los residuos.
+
+
+
+
+
+
+
+# =========================================================
+# GRÁFICOS
+# =========================================================#
+# En esta sección se construyen los gráficos de barras para
+# representar los tiempos medios estimados de germinación
+# (TMG) y emergencia (TME), utilizando las medias marginales
+# estimadas obtenidas a partir de los modelos seleccionados.
+
+
+# ---------------------------------------------------------
+# PREPARACIÓN DE LOS DATOS PARA LOS GRÁFICOS
+# ---------------------------------------------------------
+
+# Definir el orden de los tratamientos y de las especies
+# para mantener el mismo formato utilizado en el resto
+# de las figuras de la tesina.
+
+orden_tratamientos <- c(
+  "control 0mm G",
+  "C25 0mm G",
+  "C100 0mm G",
+  "control 2mm E",
+  "C25 2mm G",
+  "C25 2mm E",
+  "C100 2mm G",
+  "C100 2mm E",
+  "control 5mm E",
+  "C25 5mm G",
+  "C25 5mm E",
+  "C100 5mm G",
+  "C100 5mm E"
+)
+
+orden_especies <- c(
+  "Gymnocalycium saglionis",
+  "Echinopsis leucantha",
+  "Harrisia pomanensis"
+)
+
+# ---------------------------------------------------------
+# PALETA DE COLORES
+# ---------------------------------------------------------
+
+colores_tratamientos <- c(
+  
+  # Control
+  "Control 0mm" = "#33A02C",
+  "control 2mm E"  = "#7FC97F",
+  "control 5mm E"  = "#C7E9C0",
+  
+  # C25
+  "C25 0mm G" = "#1F78B4",
+  "C25 2mm G" = "#6BAED6",
+  "C25 2mm E" = "#6BAED6",
+  "C25 5mm G" = "#BDD7E7",
+  "C25 5mm E" = "#BDD7E7",
+  
+  # C100
+  "C100 0mm G" = "#E31A1C",
+  "C100 2mm G" = "#FB6A4A",
+  "C100 2mm E" = "#FB6A4A",
+  "C100 5mm G" = "#FCBBA1",
+  "C100 5mm E" = "#FCBBA1"
+)
+
+
+
+# ---------------------------------------------------------
+# TEMA GENERAL DE LAS FIGURAS
+# ---------------------------------------------------------
+
+tema_tesina <- theme_bw(base_size = 13) +
+  
+  theme(
+    
+    strip.background = element_blank(),
+    
+    strip.text = element_text(
+      face = "italic",
+      size = 13
+    ),
+    
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1,
+      size = 10
+    ),
+    
+    axis.text.y = element_text(
+      size = 11
+    ),
+    
+    axis.title = element_text(
+      size = 13
+    ),
+    
+    legend.position = "none"
+    
+  )
+
+# ---------------------------------------------------------
+# DATOS PARA EL GRÁFICO DESCRIPTIVO DE TMG
+# ---------------------------------------------------------
+
+datos_grafico_TMG <- datos_TMG %>%
+  
+  mutate(
+    
+    tratamiento = factor(
+      tratamiento, levels = orden_tratamientos),
+    
+    especie = factor( especie,
+      levels = orden_especies ) ) %>%  group_by( especie, tratamiento ) %>%
+  summarise( media = mean(TM), se = sd(TM) / sqrt(n()),  .groups = "drop"  )
+
+# ---------------------------------------------------------
+# DATOS PARA EL GRÁFICO DESCRIPTIVO DE TME
+# ---------------------------------------------------------
+
+datos_grafico_TME <- datos_TME %>%
+  
+  mutate(
+    
+    tratamiento = factor(
+      tratamiento, levels = orden_tratamientos),
+    
+    especie = factor( especie,
+      levels = orden_especies ) ) %>%  group_by(especie,  tratamiento ) %>%
+  
+  summarise(  media = mean(TM), se = sd(TM) / sqrt(n()),  .groups = "drop")
+
+
+# ---------------------------------------------------------
+# GRÁFICO DESCRIPTIVO DEL TMG
+# ---------------------------------------------------------
+
+grafico_TMG_descriptivo <- ggplot(
+  datos_grafico_TMG,
+  aes(
+    x = tratamiento,
+    y = media,
+    fill = tratamiento
+  )
+) +
+  
+  geom_col(
+    width = 0.75,
+    color = "black"
+  ) +
+  
+  geom_errorbar(
+    aes(
+      ymin = media - se,
+      ymax = media + se
+    ),
+    width = 0.2
+  ) +
+  
+  facet_wrap(
+    ~ especie,
+    nrow = 1
+  ) +
+  
+  scale_fill_manual(
+    values = colores_tratamientos
+  ) +
+  
+  labs(
+    x = "Tratamiento",
+    y = "Tiempo medio de germinación (días)"
+  ) +
+  
+  coord_cartesian(
+    ylim = c(0, 40)
+  ) +
+  
+  tema_tesina
+
+
+grafico_TMG_descriptivo
+
+
+# ---------------------------------------------------------
+# GRÁFICO DESCRIPTIVO DEL TME
+# ---------------------------------------------------------
+
+grafico_TME_descriptivo <- ggplot(
+  datos_grafico_TME,
+  aes(
+    x = tratamiento,
+    y = media,
+    fill = tratamiento
+  )
+) +
+  
+  geom_col(
+    width = 0.75,
+    color = "black"
+  ) +
+  
+  geom_errorbar(
+    aes(
+      ymin = media - se,
+      ymax = media + se
+    ),
+    width = 0.2
+  ) +
+  
+  facet_wrap(
+    ~ especie,
+    nrow = 1
+  ) +
+  
+  scale_fill_manual(
+    values = colores_tratamientos
+  ) +
+  
+  labs(
+    x = "Tratamiento",
+    y = "Tiempo medio de emergencia (días)"
+  ) +
+  
+  coord_cartesian(
+    ylim = c(0, 40)
+  ) +
+  
+  tema_tesina
+
+grafico_TME_descriptivo
+
+
+
+
+
+
+
+
+
+
+#################################################################################
+
+
+
+
+
+
+
+
+
+#Modelo alternativo para analizar el TMG. Basicamente el modelo utiliza  
+# tratamiento como unico factor (en lugar de ver los factores carga, profundidad y especie separados)
+ 
+
+mod_trat_G <- glm(TM ~ especie * tratamiento, family = Gamma(link = "log"),
+  data = datos_TMG)
+
+emm_trat_G <- emmeans(mod_trat_G, ~ tratamiento | especie, type = "response")
+
+
+pairs(emm_trat_G)
+
+cld(emm_trat_G, Letters = letters, adjust = "tukey")
+
+
+
+
+mod_trat_E <- glm(TM ~ especie * tratamiento, family = Gamma(link = "log"), data = 
+                    datos_TME)
+
+emm_trat_E <- emmeans(mod_trat_E, ~ tratamiento | especie, type = "response")
+
+pairs(emm_trat_E)
+
+cld(emm_trat_E, Letters = letters, adjust = "tukey")
+
+
+# =========================================================
+# LETRAS DE SIGNIFICANCIA
+# =========================================================
+
+# Obtener las letras a partir de las comparaciones múltiples
+# realizadas con emmeans para TMG y TME.
+
+letras_TMG <- cld(
+  emm_trat_G,
+  Letters = letters
+) %>%
+  as.data.frame() %>%
+  dplyr::select(especie, tratamiento, .group) %>%
+  mutate(.group = stringr::str_trim(.group))
+
+
+letras_TME <- cld(
+  emm_trat_E,
+  Letters = letters
+) %>%
+  as.data.frame() %>%
+  dplyr::select(especie, tratamiento, .group) %>%
+  mutate(.group = stringr::str_trim(.group))
+
+
+
+# =========================================================
+# PREPARACIÓN DE LOS DATOS PARA EL GRÁFICO
+# =========================================================
+
+
+# ---------------------------------------------------------
+# TMG
+# ---------------------------------------------------------
+
+# Se calculan las medias y errores estándar descriptivos
+# para cada combinación de especie y tratamiento.
+# Luego se incorporan las letras obtenidas del modelo.
+
+datos_grafico_TMG <- datos_TMG %>%
+  
+  mutate(
+    tratamiento = factor(
+      tratamiento,
+      levels = orden_tratamientos
+    ),
+    especie = factor(
+      especie,
+      levels = orden_especies
+    )
+  ) %>%
+  
+  group_by(
+    especie,
+    tratamiento
+  ) %>%
+  
+  summarise(
+    media = mean(TM),
+    se = sd(TM) / sqrt(n()),
+    .groups = "drop"
+  ) %>%
+  
+  left_join(
+    letras_TMG,
+    by = c("especie", "tratamiento")
+  ) %>%
+  
+  mutate(
+    tipo = "TMG"
+  )
+
+
+# =========================================================
+# PREPARACIÓN DE LOS DATOS PARA EL GRÁFICO
+# =========================================================
+
+
+# ---------------------------------------------------------
+# ORDEN DE LOS TRATAMIENTOS EN EL GRÁFICO
+# ---------------------------------------------------------
+
+# El control siempre aparece primero.
+# Luego se ordenan los tratamientos por carga y profundidad.
+
+
+orden_tratamientos_grafico <- c(
+  "control",
+  
+  "control 2mm E",
+  "control 5mm E",
+  
+  "C25 0mm G",
+  "C100 0mm G",
+  
+  "C25 2mm G",
+  "C25 2mm E",
+  "C100 2mm G",
+  "C100 2mm E",
+  
+  "C25 5mm G",
+  "C25 5mm E",
+  "C100 5mm G",
+  "C100 5mm E"
+)
+
+# =========================================================
+# TMG
+# =========================================================
+
+datos_grafico_TMG <- datos_TMG %>%
+  
+  mutate(
+    
+    # Convertir a carácter antes de cambiar el nombre
+    # del tratamiento control
+    
+    tratamiento = as.character(tratamiento),
+    
+    tratamiento = dplyr::recode(
+      tratamiento,
+      "control 0mm G" = "control"
+    ),
+    
+    especie = factor(
+      especie,
+      levels = orden_especies
+    )
+  ) %>%
+  
+  group_by(
+    especie,
+    tratamiento
+  ) %>%
+  
+  summarise(
+    media = mean(TM),
+    se = sd(TM) / sqrt(n()),
+    .groups = "drop"
+  )
+
+
+# ---------------------------------------------------------
+# PREPARAR LAS LETRAS DEL TMG
+# ---------------------------------------------------------
+
+letras_TMG_grafico <- letras_TMG %>%
+  
+  mutate(
+    tratamiento = as.character(tratamiento),
+    
+    tratamiento = dplyr::recode(
+      tratamiento,
+      "control 0mm G" = "control"
+    )
+  )
+
+
+# ---------------------------------------------------------
+# UNIR LAS LETRAS AL TMG
+# ---------------------------------------------------------
+
+datos_grafico_TMG <- datos_grafico_TMG %>%
+  
+  left_join(
+    letras_TMG_grafico,
+    by = c("especie", "tratamiento")
+  ) %>%
+  
+  mutate(
+    tipo = "TMG",
+    
+    tratamiento = factor(
+      tratamiento,
+      levels = orden_tratamientos_grafico
+    )
+  )
+
+# =========================================================
+# TME
+# =========================================================
+
+# Incorporar el control superficial proveniente de TMG
+# como referencia biológica en el panel de TME.
+
+control_base <- datos_TMG %>%
+  
+  filter(
+    tratamiento == "control 0mm G"
+  ) %>%
+  
+  mutate(
+    tratamiento = "control"
+  )
+
+
+# Combinar control + tratamientos de TME
+
+datos_TME_grafico <- bind_rows(
+  control_base,
+  datos_TME
+)
+
+
+# Calcular medias y errores estándar
+
+datos_grafico_TME <- datos_TME_grafico %>%
+  
+  mutate(
+    especie = factor(
+      especie,
+      levels = orden_especies
+    )
+  ) %>%
+  
+  group_by(
+    especie,
+    tratamiento
+  ) %>%
+  
+  summarise(
+    media = mean(TM),
+    se = sd(TM) / sqrt(n()),
+    .groups = "drop"
+  ) %>%
+  
+  mutate(
+    tipo = "TME"
+  ) %>%
+  
+  # Incorporar las letras del modelo de TME.
+  # El control queda sin letra porque no forma parte
+  # del modelo estadístico de TME.
+  
+  left_join(
+    letras_TME,
+    by = c("especie", "tratamiento")
+  ) %>%
+  
+  mutate(
+    tratamiento = factor(
+      tratamiento,
+      levels = orden_tratamientos_grafico
+    )
+  )
+
+
+# =========================================================
+# UNIR TMG Y TME
+# =========================================================
+
+datos_grafico_TM <- bind_rows(
+  datos_grafico_TMG,
+  datos_grafico_TME
+)
+
+
+# Orden de los paneles
+
+datos_grafico_TM <- datos_grafico_TM %>%
+  
+  mutate(
+    tipo = factor(
+      tipo,
+      levels = c("TMG", "TME")
+    )
+  )
+
+
+# =========================================================
+# PALETA DE COLORES
+# =========================================================
+
+colores_tratamientos_grafico <- colores_tratamientos
+
+colores_tratamientos_grafico["control"] <- "#4CAF50"
+
+
+# =========================================================
+# GRÁFICO FINAL
+# =========================================================
+
+grafico_TM <- ggplot(
+  datos_grafico_TM,
+  aes(
+    x = tratamiento,
+    y = media,
+    fill = tratamiento
+  )
+) +
+  
+  # Barras
+  
+  geom_col(
+    colour = "black",
+    width = 0.75
+  ) +
+  
+  # Error estándar
+  
+  geom_errorbar(
+    aes(
+      ymin = media - se,
+      ymax = media + se
+    ),
+    width = 0.20
+  ) +
+  
+  # Letras de significancia
+  
+  geom_text(
+    aes(
+      label = .group,
+      y = media + ifelse(
+        is.na(se),
+        0.5,
+        se
+      ) + 2
+    ),
+    size = 3.8,
+    na.rm = TRUE
+  ) +
+  
+  # Filas = especies
+  # Columnas = TMG y TME
+  
+  facet_grid(
+    especie ~ tipo,
+    scales = "free_x",
+    space = "free_x"
+  ) +
+  
+  # Colores
+  
+  scale_fill_manual(
+    values = colores_tratamientos_grafico
+  ) +
+  
+  # Nombres de los tratamientos
+  
+  scale_x_discrete(
+    labels = function(x) {
+      
+      x <- gsub( " G", "", x)
+      
+      x <- gsub( " E", "", x) x }) +
+  
+  coord_cartesian(
+    ylim = c(0, 40)
+  ) +
+  
+  labs(
+    x = "Tratamiento",
+    y = "Tiempo medio (días)"
+  ) +
+  
+  tema_tesina
+
+
+# Mostrar gráfico
+
+grafico_TM
+
